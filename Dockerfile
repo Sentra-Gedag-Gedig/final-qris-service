@@ -16,11 +16,17 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir fastapi uvicorn websockets
 
-# Buat struktur direktori untuk model
-RUN mkdir -p runs/train/exp10/weights
-
 # Salin kode aplikasi (kecuali yang diignore di .dockerignore)
 COPY . .
+
+# Pastikan direktori model ada
+RUN mkdir -p /app/model
+
+# Salin model dari exp5 ke lokasi yang tetap dalam container
+COPY ./runs/train/exp5/weights/best.pt /app/model/qris_model.pt
+
+# Set environment variable MODEL_PATH
+ENV MODEL_PATH=/app/model/qris_model.pt
 
 # Expose port untuk FastAPI
 EXPOSE 8080
