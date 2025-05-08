@@ -195,10 +195,15 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
+    import os
+
+    port = int(os.environ.get("PORT", 8080))
+
     print(f"Model loaded: {weights}")
     print(f"Device: {device}")
     print(f"Model stride: {stride}")
     print(f"Input image size: {imgsz}")
-    print(f"Starting QRIS detection service on http://0.0.0.0:8000")
-    print(f"WebSocket available at ws://0.0.0.0:8000/api/v1/qris/ws")
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    print(f"Starting QRIS detection service on http://0.0.0.0:{port}")
+    print(f"WebSocket available at ws://0.0.0.0:{port}/api/v1/qris/ws")
+
+    uvicorn.run(app, host="0.0.0.0", port=port)

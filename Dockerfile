@@ -1,5 +1,7 @@
 FROM python:3.9-slim
 
+ENV PORT=8080
+
 WORKDIR /app
 
 # Install dependensi sistem
