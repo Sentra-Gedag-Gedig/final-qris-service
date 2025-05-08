@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KTP Detection - Troubleshooter</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 20px;
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        color: #0066cc;
+      }
+
+      h2 {
+        margin-top: 20px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .input-group {
+        margin-bottom: 15px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      input[type="text"] {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 16px;
+      }
+
+      button {
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-right: 10px;
+      }
+
+      button:hover {
+        background-color: #0055aa;
+      }
+
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+      }
+
+      .success {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+      }
+
+      .error {
+        background-color: #ffebee;
+        color: #d32f2f;
+      }
+
+      .warning {
+        background-color: #fff8e1;
+        color: #ff8f00;
+      }
+
+      .log-container {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+        margin-top: 10px;
+      }
+
+      .log-entry {
+        margin-bottom: 5px;
+        padding: 3px 0;
+        border-bottom: 1px solid #eee;
+      }
+
+      .timestamp {
+        color: #0066cc;
+        margin-right: 10px;
+      }
+
+      .camera-container {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      #video,
+      #canvas {
+        width: 100%;
+        display: block;
+      }
+
+      #canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+
+      .controls {
+        margin-top: 15px;
+        display: flex;
+        gap: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>KTP Detection Troubleshooter</h1>
+
+      <div class="input-group">
+        <label for="wsUrl">WebSocket URL</label>
+        <input
+          type="text"
+          id="wsUrl"
+          value="ws://localhost:8080/api/v1/ktp/ws" />
+      </div>
+
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" disabled>Disconnect</button>
+
+      <h2>Connection Status</h2>
+      <div id="status" class="status">Not connected</div>
+
+      <h2>Camera</h2>
+      <div class="controls">
+        <button id="startCameraBtn" disabled>Start Camera</button>
+        <button id="stopCameraBtn" disabled>Stop Camera</button>
+        <button id="switchCameraBtn" disabled>Switch Camera</button>
+        <button id="sendFrameBtn" disabled>Send Single Frame</button>
+      </div>
+
+      <div class="camera-container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <h2>Message Log</h2>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <script>
+      // DOM Elements
+      const wsUrlInput = document.getElementById("wsUrl");
+      const connectBtn = document.getElementById("connectBtn");
+      const disconnectBtn = document.getElementById("disconnectBtn");
+      const statusDiv = document.getElementById("status");
+      const logContainer = document.getElementById("logContainer");
+      const startCameraBtn = document.getElementById("startCameraBtn");
+      const stopCameraBtn = document.getElementById("stopCameraBtn");
+      const switchCameraBtn = document.getElementById("switchCameraBtn");
+      const sendFrameBtn = document.getElementById("sendFrameBtn");
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+
+      // State
+      let websocket = null;
+      let stream = null;
+      let frameInterval = null;
+      let currentFacingMode = "environment";
+
+      // Log message
+      function logMessage(message, isError = false) {
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement("div");
+        logEntry.className = "log-entry";
+        logEntry.innerHTML = `<span class="timestamp">${timestamp}</span> ${message}`;
+
+        if (isError) {
+          logEntry.style.color = "#d32f2f";
+        }
+
+        logContainer.appendChild(logEntry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      // Update status
+      function updateStatus(message, type) {
+        statusDiv.textContent = message;
+        statusDiv.className = "status " + type;
+      }
+
+      // Connect to WebSocket
+      connectBtn.addEventListener("click", () => {
+        const url = wsUrlInput.value.trim();
+
+        if (!url) {
+          updateStatus("Please enter a WebSocket URL", "error");
+          return;
+        }
+
+        if (websocket) {
+          websocket.close();
+        }
+
+        try {
+          logMessage(`Attempting to connect to ${url}...`);
+          updateStatus("Connecting...", "warning");
+
+          websocket = new WebSocket(url);
+
+          websocket.onopen = () => {
+            logMessage(`Connected to ${url}`);
+            updateStatus("Connected", "success");
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            startCameraBtn.disabled = false;
+          };
+
+          websocket.onclose = (event) => {
+            logMessage(
+              `Connection closed (Code: ${event.code} ${
+                event.reason ? "- " + event.reason : ""
+              })`
+            );
+            updateStatus("Disconnected", "error");
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            startCameraBtn.disabled = true;
+            stopCameraBtn.disabled = true;
+            switchCameraBtn.disabled = true;
+            sendFrameBtn.disabled = true;
+            stopFrameCapture();
+          };
+
+          websocket.onerror = (error) => {
+            logMessage(`WebSocket error: ${error}`, true);
+            updateStatus("Connection error", "error");
+          };
+
+          websocket.onmessage = (event) => {
+            try {
+              let message;
+
+              // Check if data is binary or text
+              if (event.data instanceof Blob) {
+                logMessage(
+                  `Received binary message of size: ${event.data.size} bytes`
+                );
+                // Handle binary message if needed
+              } else {
+                // Try to parse as JSON
+                try {
+                  const data = JSON.parse(event.data);
+                  message = `Received JSON: ${JSON.stringify(data, null, 2)}`;
+                  logMessage(message);
+
+                  // Process detection result
+                  processDetectionResult(data);
+                } catch (e) {
+                  // If not JSON, display as plain text
+                  message = `Received text: ${event.data}`;
+                  logMessage(message);
+                }
+              }
+            } catch (error) {
+              logMessage(`Error processing message: ${error}`, true);
+            }
+          };
+        } catch (error) {
+          logMessage(`Failed to create WebSocket: ${error}`, true);
+          updateStatus("Failed to create connection", "error");
+        }
+      });
+
+      // Disconnect WebSocket
+      disconnectBtn.addEventListener("click", () => {
+        if (websocket) {
+          websocket.close();
+          websocket = null;
+        }
+      });
+
+      // Start camera
+      startCameraBtn.addEventListener("click", async () => {
+        try {
+          logMessage("Starting camera...");
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: currentFacingMode,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          });
+
+          video.srcObject = stream;
+
+          video.onloadedmetadata = () => {
+            // Set canvas dimensions to match video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            logMessage(
+              `Camera started (${video.videoWidth}x${video.videoHeight})`
+            );
+            startCameraBtn.disabled = true;
+            stopCameraBtn.disabled = false;
+            switchCameraBtn.disabled = false;
+            sendFrameBtn.disabled = false;
+
+            // Start sending frames automatically
+            startFrameCapture();
+          };
+        } catch (error) {
+          logMessage(`Error starting camera: ${error}`, true);
+          updateStatus(`Camera error: ${error.message}`, "error");
+        }
+      });
+
+      // Stop camera
+      stopCameraBtn.addEventListener("click", () => {
+        stopCamera();
+        stopFrameCapture();
+      });
+
+      function stopCamera() {
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          video.srcObject = null;
+          stream = null;
+
+          // Clear canvas
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          logMessage("Camera stopped");
+          startCameraBtn.disabled = false;
+          stopCameraBtn.disabled = true;
+          switchCameraBtn.disabled = true;
+          sendFrameBtn.disabled = true;
+        }
+      }
+
+      // Switch camera
+      switchCameraBtn.addEventListener("click", async () => {
+        currentFacingMode =
+          currentFacingMode === "environment" ? "user" : "environment";
+        logMessage(
+          `Switching to ${
+            currentFacingMode === "environment" ? "back" : "front"
+          } camera...`
+        );
+
+        if (stream) {
+          // Stop current camera
+          stream.getTracks().forEach((track) => track.stop());
+
+          try {
+            // Start new camera
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode: currentFacingMode,
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+            });
+
+            video.srcObject = stream;
+
+            video.onloadedmetadata = () => {
+              // Update canvas dimensions
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              logMessage(
+                `Camera switched (${video.videoWidth}x${video.videoHeight})`
+              );
+            };
+          } catch (error) {
+            logMessage(`Error switching camera: ${error}`, true);
+          }
+        }
+      });
+
+      // Send single frame
+      sendFrameBtn.addEventListener("click", () => {
+        captureAndSendFrame();
+      });
+
+      // Start capturing frames
+      function startFrameCapture() {
+        if (frameInterval) {
+          clearInterval(frameInterval);
+        }
+
+        // Send frame immediately
+        captureAndSendFrame();
+
+        // Then send every 200ms (5 fps)
+        frameInterval = setInterval(() => {
+          if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+            stopFrameCapture();
+            return;
+          }
+
+          captureAndSendFrame();
+        }, 200);
+
+        logMessage("Started sending frames (5 fps)");
+      }
+
+      // Stop capturing frames
+      function stopFrameCapture() {
+        if (frameInterval) {
+          clearInterval(frameInterval);
+          frameInterval = null;
+          logMessage("Stopped sending frames");
+        }
+      }
+
+      // Capture and send frame
+      function captureAndSendFrame() {
+        if (
+          !stream ||
+          !canvas ||
+          !websocket ||
+          websocket.readyState !== WebSocket.OPEN
+        )
+          return;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Convert to binary
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              try {
+                websocket.send(blob);
+                logMessage(`Sent frame: ${blob.size} bytes`);
+              } catch (error) {
+                logMessage(`Error sending frame: ${error}`, true);
+              }
+            }
+          },
+          "image/jpeg",
+          0.8
+        );
+      }
+
+      // Process detection result
+      function processDetectionResult(data) {
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+
+        // Check if KTP was detected
+        if (data.bbox && data.bbox.length === 4) {
+          const [x1, y1, x2, y2] = data.bbox;
+
+          // Draw bounding box
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = data.message === "OK" ? "#2e7d32" : "#ff8f00";
+          ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+          // Draw center point if available
+          if (data.center && data.center.length === 2) {
+            const [cx, cy] = data.center;
+            ctx.fillStyle = "#d32f2f";
+            ctx.beginPath();
+            ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+
+          // Draw message
+          if (data.message) {
+            ctx.font = "20px Arial";
+            ctx.fillStyle = data.message === "OK" ? "#2e7d32" : "#ff8f00";
+            ctx.fillText(data.message, x1, y1 - 10);
+          }
+        } else if (data.message === "KTP tidak terdeteksi") {
+          // Clear previous drawings when KTP not detected
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // Display message in center of canvas
+          ctx.font = "24px Arial";
+          ctx.fillStyle = "#d32f2f";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            "KTP tidak terdeteksi",
+            canvas.width / 2,
+            canvas.height / 2
+          );
+          ctx.textAlign = "start"; // Reset alignment
+        }
+      }
+    </script>
+  </body>
+</html>
