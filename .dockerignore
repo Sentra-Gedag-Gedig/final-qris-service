@@ -13,6 +13,7 @@ data/samples/*
 
 # Neural Network weights -----------------------------------------------------------------------------------------------
 **/*.pt
+!runs/train/exp5/weights/best.pt
 **/*.pth
 **/*.onnx
 **/*.engine
