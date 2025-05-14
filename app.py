@@ -15,7 +15,7 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api/v1")
 qris_router = APIRouter(prefix="/qris")
 
-weights = os.environ.get('MODEL_PATH', 'yolov5s.pt')
+weights = os.environ.get('MODEL_PATH', 'runs/train/exp5/weights/best.pt')
 print(f"Using model from: {weights}")
 device = select_device('')
 try:
